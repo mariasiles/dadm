@@ -12,7 +12,10 @@ from sklearn.linear_model import LinearRegression
 from sklearn.ensemble import GradientBoostingRegressor
 from sklearn.preprocessing import StandardScaler
 import warnings
+import os
 warnings.filterwarnings("ignore")
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 st.set_page_config(page_title="Climate Policy Simulator", page_icon="", layout="wide", initial_sidebar_state="expanded")
 
@@ -36,7 +39,7 @@ YEARS_FUTURE = list(range(2025, 2036))
 
 @st.cache_data
 def cargar_datos():
-    return pd.read_csv("master_dataset.csv")
+    return pd.read_csv(os.path.join(BASE_DIR, "master_dataset.csv"))
 
 @st.cache_resource
 def entrenar_modelo(_df):
@@ -265,7 +268,7 @@ indicadores = {
     " Mortalidad resp. (/100k)":   (resp_actual,   se_resp,  False, "{:.1f}"),
     " PIB per cápita (USD)":       (gdp_actual,    se_gdp,   True,  "{:,.0f} $"),
     " IDH (0-1)":                  (hdi_actual,    se_hdi,   True,  "{:.3f}"),
-    "⚖️ Índice Gini (desigualdad)":  (gini_actual,   se_gini,  False, "{:.1f}"),
+    " Índice Gini (desigualdad)":  (gini_actual,   se_gini,  False, "{:.1f}"),
 }
 
 col_tab, col_rad = st.columns([1, 1])
