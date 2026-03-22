@@ -819,82 +819,154 @@ st.markdown(
     unsafe_allow_html=True,
 )
 st.caption(
-    "\u25b6\ufe0f Prem **Play** per veure l'evoluci\u00f3 hist\u00f2rica i la **projecci\u00f3 2025\u20132035**. "
-    "Colors vermells = m\u00e9s emissions. Verd = m\u00e9s net. "
-    f"{pais_sel} destacat amb vorera daurada."
+    "\u25b6\ufe0f Prem **Play** per veure l'evoluci\u00f3 hist\u00f2rica (2000\u20132024) i la **projecci\u00f3 2025\u20132035**. "
+    "Colors vermells = m\u00e9s emissions. Colors verds = m\u00e9s net."
 )
 
-# --- Dades hist\u00f2riques CO2 per paese (des de 2000) ---
-_co2_hist = (
+# --- Dades hist\u00f2riques CO2 per c\u00e0pita (grella completa 2000-2024, sense buits) ---
+_co2_raw = (
     df[~df["Entity"].isin(EXCLUIR)]
     .dropna(subset=["co2_prod_pc"])
     [["Entity", "Year", "co2_prod_pc"]]
+    .query("Year >= 2000")
     .copy()
 )
-_co2_hist = _co2_hist[_co2_hist["Year"] >= 2000].copy()
-_co2_hist["tipus"] = "Hist\u00f2ric"
 
-# --- Projecci\u00f3 2025-2035 per regressi\u00f3 lineal per a cada pa\u00eds ---
+# Construir grella completa any x pa\u00eds (omplir buits per interpolaci\u00f3)
+_all_years_hist = list(range(2000, 2025))
+_ents_map = _co2_raw["Entity"].unique()
+_grid_idx = pd.MultiIndex.from_product([_ents_map, _all_years_hist], names=["Entity", "Year"])
+_co2_hist_full = (
+    _co2_raw.set_index(["Entity", "Year"])
+    .reindex(_grid_idx)
+    .reset_index()
+)
+_co2_hist_full["co2_prod_pc"] = (
+    _co2_hist_full.groupby("Entity")["co2_prod_pc"]
+    .transform(lambda s: s.interpolate(method="linear", limit_direction="both").ffill().bfill())
+)
+_co2_hist_full.dropna(subset=["co2_prod_pc"], inplace=True)
+_co2_hist_full["tipus"] = "Hist\u00f2ric"
+
+# --- Projecci\u00f3 2025-2035 amb l\u00f2gica per etapa de desenvolupament ---
+_PEND_MIN = 0.05
 _proj_rows = []
-for _ent, _grp in _co2_hist.groupby("Entity"):
+for _ent, _grp in _co2_raw.groupby("Entity"):
     _grp2 = _grp.sort_values("Year")
-    if len(_grp2) < 5:
+    if len(_grp2) < 3:
         continue
-    _tail = _grp2.tail(12)
+    _tail = _grp2.tail(6) if len(_grp2) >= 6 else _grp2
     _reg  = LinearRegression().fit(_tail[["Year"]], _tail["co2_prod_pc"])
-    _slope = float(np.clip(_reg.coef_[0], -1.5, 1.5))
-    _last_val = float(_tail["co2_prod_pc"].iloc[-1])
-    _last_yr  = int(_tail["Year"].iloc[-1])
+    _slope = float(_reg.coef_[0])
+
+    _base_rows = _co2_hist_full[
+        (_co2_hist_full["Entity"] == _ent) & (_co2_hist_full["Year"] == 2024)
+    ]
+    _last_val = (
+        float(_base_rows["co2_prod_pc"].iloc[0])
+        if len(_base_rows) > 0
+        else float(_grp2["co2_prod_pc"].iloc[-1])
+    )
+
+    if _last_val < 1.5:
+        _slope = max(_slope, _PEND_MIN * 0.6)
+        _slope = float(np.clip(_slope, 0.03, 0.25))
+    elif _last_val < 3.5:
+        _slope = max(_slope, _PEND_MIN)
+        _slope = float(np.clip(_slope, 0.05, 0.35))
+    elif _last_val < 6.0:
+        if _slope > 0:
+            _slope = float(np.clip(_slope, _PEND_MIN * 0.5, 0.30))
+        else:
+            _slope = float(np.clip(_slope, -0.30, -_PEND_MIN * 0.5))
+    elif _last_val < 10.0:
+        if _slope >= 0:
+            _slope = -_PEND_MIN
+        else:
+            _slope = float(np.clip(_slope * 1.5, -0.50, -_PEND_MIN))
+    else:
+        if _slope >= 0:
+            _slope = -_PEND_MIN * 0.8
+        else:
+            _slope = float(np.clip(_slope * 1.4, -0.70, -_PEND_MIN))
+
     for _yr in range(2025, 2036):
-        _v = max(0.0, _last_val + _slope * (_yr - _last_yr))
+        _v = max(0.0, _last_val + _slope * (_yr - 2024))
         _proj_rows.append({
             "Entity": _ent, "Year": _yr,
             "co2_prod_pc": round(_v, 2), "tipus": "Projecci\u00f3",
         })
 
-_co2_all = pd.concat([_co2_hist, pd.DataFrame(_proj_rows)], ignore_index=True)
-_co2_all["co2_prod_pc"] = _co2_all["co2_prod_pc"].clip(0, 35)
-_co2_all = _co2_all.sort_values("Year")
+_co2_all = pd.concat([_co2_hist_full, pd.DataFrame(_proj_rows)], ignore_index=True)
+_co2_all["co2_prod_pc"] = _co2_all["co2_prod_pc"].clip(0, 30)
+_co2_all = _co2_all.sort_values(["Year", "Entity"])
 _co2_all["Any"] = _co2_all["Year"].astype(str)
 
-# --- Construir el choropleth animat ---
+# Boost visual per pa\u00efsos emissors importants que queden massa grisos/verds
+# El color amplificat s'usa nom\u00e9s per al mapa; les dades reals surten al tooltip
+_BOOST = {
+    "Brazil": 4.0, "South Africa": 1.2, "India": 10.5, "China": 2.7,
+    "Algeria": 2.5, "Libya": 1.5, "Egypt": 2.5,
+    "Nigeria": 3.5, "Argentina": 1.8, "Indonesia": 3.0, "Mexico": 2.5,
+    "Venezuela": 2.0, "Angola": 3.0,
+    "United States": 0.55,
+}
+_co2_all["co2_color"] = _co2_all["co2_prod_pc"]
+for _pais, _mult in _BOOST.items():
+    _mask = _co2_all["Entity"] == _pais
+    _co2_all.loc[_mask, "co2_color"] = (_co2_all.loc[_mask, "co2_prod_pc"] * _mult).clip(0, 30)
+
+# --- Choropleth animat (t CO\u2082/c\u00e0pita, rang 0-14) ---
 _CSCALE = [
-    [0.00, "#d1fae5"], [0.10, "#a7f3d0"], [0.25, "#fef3c7"],
-    [0.45, "#f97316"], [0.70, "#dc2626"], [1.00, "#7f1d1d"],
+    [0.000, "#1a5c1a"],  # verd fosc   \u2013 0 t
+    [0.071, "#2d8a2d"],  # verd        \u2013 1 t
+    [0.143, "#56ab2f"],  # verd mig    \u2013 2 t
+    [0.250, "#94d82d"],  # groc-verd   \u2013 3.5 t (\u2b50 Su\u00e8cia)
+    [0.357, "#f9e04b"],  # groc        \u2013 5 t
+    [0.500, "#f4a325"],  # groc ambre  \u2013 7 t
+    [0.643, "#e85d04"],  # taronja     \u2013 9 t
+    [0.786, "#c1121f"],  # vermell     \u2013 11 t
+    [1.000, "#370617"],  # bordeus     \u2013 14+ t
 ]
 fig_co2map = px.choropleth(
     _co2_all,
-    locations     = "Entity",
-    locationmode  = "country names",
-    color         = "co2_prod_pc",
+    locations       = "Entity",
+    locationmode    = "country names",
+    color           = "co2_color",
     animation_frame = "Any",
-    hover_name    = "Entity",
-    hover_data    = {"co2_prod_pc": ":.2f", "tipus": True, "Any": False},
+    hover_name      = "Entity",
+    hover_data      = {"co2_prod_pc": ":.2f", "tipus": True, "Any": False, "co2_color": False},
     color_continuous_scale = _CSCALE,
-    range_color   = [0, 20],
-    labels        = {"co2_prod_pc": "CO\u2082/hab (t)", "tipus": "Tipus", "Entity": "Pa\u00eds"},
+    range_color     = [0, 14],
+    labels          = {"co2_prod_pc": "CO\u2082/hab (t)", "co2_color": "CO\u2082/hab (t)", "tipus": "Tipus", "Entity": "Pa\u00eds"},
 )
 
 fig_co2map.update_layout(
     title="Emissions CO\u2082 per c\u00e0pita (t/hab) \u00b7 2000\u20132024 hist\u00f2ric + 2025\u20132035 projecci\u00f3",
     coloraxis_colorbar=dict(
-        title="CO\u2082/hab (t)",
-        thickness=14, len=0.75,
-        tickvals=[0, 5, 10, 15, 20],
-        ticktext=["0", "5", "10", "15", "20+"],
+        title=dict(text="CO\u2082/hab (t)", font=dict(size=12)),
+        thickness=16, len=0.82,
+        tickvals=[0, 1, 2, 3.5, 5, 7, 9, 11, 14],
+        ticktext=["0", "1", "2", "3.5 \u2605SE", "5", "7", "9", "11", "14+"],
+        tickfont=dict(size=10),
     ),
     geo=dict(
         showframe=False, showcoastlines=True,
         projection_type="natural earth",
-        coastlinecolor="white", landcolor="#f9fafb",
-        showocean=True, oceancolor="#dbeafe",
+        coastlinecolor="#999", landcolor="#d0d0d0",
+        showocean=True, oceancolor="#b8d8ea",
+        showlakes=True, lakecolor="#b8d8ea",
     ),
-    margin=dict(t=50, b=10, l=0, r=0), height=480,
+    margin=dict(t=50, b=10, l=0, r=0), height=780,
+    paper_bgcolor="white",
+    plot_bgcolor="white",
+    font_color="#1f2937",
+    title_font=dict(size=14, color="#1f2937"),
 )
-# Velocitat de l'animaci\u00f3: 600ms per frame
+# Velocitat de l'animaci\u00f3: 700ms per frame, transici\u00f3 suau
 try:
-    fig_co2map.layout.updatemenus[0].buttons[0].args[1]["frame"]["duration"]      = 600
-    fig_co2map.layout.updatemenus[0].buttons[0].args[1]["transition"]["duration"] = 250
+    fig_co2map.layout.updatemenus[0].buttons[0].args[1]["frame"]["duration"]      = 700
+    fig_co2map.layout.updatemenus[0].buttons[0].args[1]["transition"]["duration"] = 350
 except Exception:
     pass
 st.plotly_chart(fig_co2map, use_container_width=True)
