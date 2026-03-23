@@ -905,15 +905,19 @@ _co2_all["Any"] = _co2_all["Year"].astype(str)
 # Boost visual per pa\u00efsos emissors importants que queden massa grisos/verds
 # El color amplificat s'usa nom\u00e9s per al mapa; les dades reals surten al tooltip
 _BOOST = {
-    "Brazil": 4.0, "South Africa": 1.6, "India": 10.5, "China": 2.7,
-    "Algeria": 2.5, "Libya": 1.5, "Egypt": 2.5,
-    "Nigeria": 3.5, "Argentina": 1.8, "Indonesia": 3.0, "Mexico": 2.5,
+    "Brazil": 4.0, "South Africa": 1.6, "India": 10.5, "China": 3.2,
+    "Algeria": 2.5, "Libya": 1, "Egypt": 2.5,
+    "Nigeria": 3.5, "Argentina": 1.8, "Indonesia": 5.0, "Mexico": 2.5,
     "Venezuela": 2.0, "Angola": 5.0,
-    "United States": 0.55,
-    "Zambia": 7.0, "Tanzania": 8.0, "Kenya": 8.0,
-    "Ethiopia": 8.0, "Ghana": 8.0, "Senegal": 8.0,
-    "Sudan": 7.0, "Niger": 7.0, "Mali": 10.0, "Mauritania": 8.0,
-    "Colombia": 2.5, "Ecuador": 2.5,
+    "United States": 0.6,
+    "Zambia": 10.0, "Tanzania": 9.0, "Kenya": 10.0,
+    "Ethiopia": 8.0, "Ghana": 10.0, "Senegal": 10.0,
+    "Sudan": 9.0, "Niger": 9.0, "Mali": 10.0, "Mauritania": 8.0,
+    "Colombia": 3.5, "Ecuador": 2.5,
+    "Canada": 0.6, "Australia": 0.6,
+    "Peru": 3.5, "Chile": 1.8,
+    "Cambodia": 4.0,
+    "Iran": 1.5,
 }
 _co2_all["co2_color"] = _co2_all["co2_prod_pc"]
 for _pais, _mult in _BOOST.items():
